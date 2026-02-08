@@ -74,7 +74,7 @@ if(APPLE)
     set_target_properties(keyit_framework PROPERTIES
         FRAMEWORK TRUE
         FRAMEWORK_VERSION A
-        OUTPUT_NAME "KeyIT"
+        OUTPUT_NAME "KeyIt"
         MACOSX_FRAMEWORK_IDENTIFIER "com.tilltoenshoff.keyit"
         PUBLIC_HEADER "${KEYIT_PUBLIC_HEADERS}"
     )
@@ -97,14 +97,14 @@ if(APPLE)
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_CURRENT_SOURCE_DIR}/models/keynet.mlmodelc"
                 "$<TARGET_FILE_DIR:keyit_framework>/Resources/keynet.mlmodelc"
-            COMMENT "Copying keynet.mlmodelc into KeyIT.framework resources"
+            COMMENT "Copying keynet.mlmodelc into KeyIt.framework resources"
         )
     elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/keynet.mlpackage")
         add_custom_command(TARGET keyit_framework POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_CURRENT_SOURCE_DIR}/models/keynet.mlpackage"
                 "$<TARGET_FILE_DIR:keyit_framework>/Resources/keynet.mlpackage"
-            COMMENT "Copying keynet.mlpackage into KeyIT.framework resources"
+            COMMENT "Copying keynet.mlpackage into KeyIt.framework resources"
         )
     endif()
 endif()

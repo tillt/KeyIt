@@ -54,7 +54,7 @@ NSString* resolve_model_path(const KeyitConfig& config) {
         }
     }
 
-    // Resolve model from KeyIT.framework bundle resources when linked as a framework.
+    // Resolve model from KeyIt.framework bundle resources when linked as a framework.
     Dl_info self_info{};
     if (dladdr(reinterpret_cast<const void*>(&resolve_model_path), &self_info) != 0 && self_info.dli_fname) {
         NSString* self_path = [NSString stringWithUTF8String:self_info.dli_fname];
@@ -130,7 +130,7 @@ bool run_keynet_coreml(const std::vector<float>& input_nchw,
         NSString* model_path = resolve_model_path(config);
         if (!model_path) {
             if (error) {
-                *error = "CoreML model not found. Set --model, bundle keynet.mlmodelc in KeyIT.framework, or place keynet.mlmodelc in models/.";
+                *error = "CoreML model not found. Set --model, bundle keynet.mlmodelc in KeyIt.framework, or place keynet.mlmodelc in models/.";
             }
             return false;
         }
