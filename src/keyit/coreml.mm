@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <dlfcn.h>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -50,6 +51,26 @@ NSString* resolve_model_path(const KeyitConfig& config) {
         NSString* candidate = [NSString stringWithUTF8String:config.model_path.c_str()];
         if ([fm fileExistsAtPath:candidate]) {
             return candidate;
+        }
+    }
+
+    // Resolve model from KeyIT.framework bundle resources when linked as a framework.
+    Dl_info self_info{};
+    if (dladdr(reinterpret_cast<const void*>(&resolve_model_path), &self_info) != 0 && self_info.dli_fname) {
+        NSString* self_path = [NSString stringWithUTF8String:self_info.dli_fname];
+        NSString* framework_path = [[[self_path stringByDeletingLastPathComponent]
+                                     stringByDeletingLastPathComponent]
+                                    stringByDeletingLastPathComponent];
+        NSBundle* framework_bundle = [NSBundle bundleWithPath:framework_path];
+        if (framework_bundle) {
+            NSString* bundled_modelc = [framework_bundle pathForResource:@"keynet" ofType:@"mlmodelc"];
+            if (bundled_modelc && [fm fileExistsAtPath:bundled_modelc]) {
+                return bundled_modelc;
+            }
+            NSString* bundled_mlpackage = [framework_bundle pathForResource:@"keynet" ofType:@"mlpackage"];
+            if (bundled_mlpackage && [fm fileExistsAtPath:bundled_mlpackage]) {
+                return bundled_mlpackage;
+            }
         }
     }
 
@@ -109,7 +130,7 @@ bool run_keynet_coreml(const std::vector<float>& input_nchw,
         NSString* model_path = resolve_model_path(config);
         if (!model_path) {
             if (error) {
-                *error = "CoreML model not found. Set --model or place keynet.mlmodelc in models/.";
+                *error = "CoreML model not found. Set --model, bundle keynet.mlmodelc in KeyIT.framework, or place keynet.mlmodelc in models/.";
             }
             return false;
         }

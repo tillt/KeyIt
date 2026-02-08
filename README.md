@@ -1,6 +1,6 @@
 # keyit
 
-`keyit` is a macOS-first musical key detector built around a CoreML port of `MusicalKeyCNN`.
+`keyit` is a macOS musical key detector built around a CoreML port of `MusicalKeyCNN`.
 
 ## Build
 
