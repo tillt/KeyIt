@@ -4,6 +4,7 @@
 #include <Accelerate/Accelerate.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -22,17 +23,82 @@ namespace {
 
 constexpr float kPi = 3.14159265358979323846f;
 
+constexpr std::array<float, 105> kDefaultCqtLogBiasCalibration = {
+    -0.000569605f, 0.089987211f, 0.059522379f, 0.002958555f, -0.001229182f,
+    0.014994876f, -0.001613494f, -0.001697450f, -0.012865714f, 0.008798168f,
+    -0.006478477f, 0.037683025f, 0.047509514f, -0.003477540f, 0.028903425f,
+    0.016506944f, 0.001020141f, 0.096190549f, 0.036941819f, 0.055572119f,
+    0.035654228f, 0.068934277f, 0.026527856f, 0.047729678f, 0.048033297f,
+    -0.002398027f, 0.003481851f, 0.016972272f, 0.006126870f, 0.010895204f,
+    0.010356715f, 0.060883220f, 0.015724901f, 0.001813385f, -0.014839026f,
+    0.010105963f, -0.021060374f, -0.017283276f, -0.032024253f, 0.000401010f,
+    -0.014443966f, -0.030890029f, 0.013468808f, 0.058732729f, 0.062168993f,
+    0.003488004f, 0.020821329f, 0.060476195f, -0.002737077f, 0.039107293f,
+    -0.003992316f, -0.016295968f, -0.026999362f, -0.038911294f, -0.129018039f,
+    -0.104844265f, 0.147920921f, 0.084650330f, 0.133828059f, 0.046417717f,
+    -0.065603286f, -0.015127970f, -0.043269549f, 0.026519030f, -0.014582912f,
+    -0.021594053f, 0.027685707f, -0.012271252f, 0.055315774f, -0.015118226f,
+    -0.002438913f, 0.071180291f, -0.007490360f, -0.002114419f, -0.039981484f,
+    0.029184885f, 0.049780566f, -0.066231221f, 0.018569611f, -0.100987464f,
+    -0.064819396f, -0.003573988f, -0.071017623f, -0.009632824f, -0.022680972f,
+    0.040978514f, 0.043392800f, 0.037171312f, 0.039148394f, 0.047089498f,
+    0.029720087f, -0.052433390f, -0.018170131f, -0.082098335f, -0.043716643f,
+    0.015848953f, 0.027455000f, -0.004654925f, 0.022630151f, -0.006234625f,
+    -0.015559875f, -0.023190090f, 0.074984640f, -0.058978233f, 0.206483543f,
+};
+
 const char* kCamelot[24] = {
-    "1A", "2A", "3A", "4A", "5A", "6A", "7A", "8A", "9A", "10A", "11A", "12A",
-    "1B", "2B", "3B", "4B", "5B", "6B", "7B", "8B", "9B", "10B", "11B", "12B"
+    "1A",
+	"2A",
+	"3A",
+	"4A",
+	"5A",
+	"6A",
+	"7A",
+	"8A",
+	"9A",
+	"10A",
+	"11A",
+	"12A",
+    "1B",
+	"2B",
+	"3B",
+	"4B",
+	"5B",
+	"6B",
+	"7B",
+	"8B",
+	"9B",
+	"10B",
+	"11B",
+	"12B"
 };
 
 const char* kKeyNames[24] = {
-    "G# minor/Ab minor", "D# minor/Eb minor", "A# minor/Bb minor", "F minor",
-    "C minor", "G minor", "D minor", "A minor", "E minor", "B minor",
-    "F# minor/Gb minor", "C# minor/Db minor", "B major", "F# major/Gb major",
-    "C# major/Db major", "G# major/Ab major", "D# major/Eb major", "A# major/Bb major",
-    "F major", "C major", "G major", "D major", "A major", "E major"
+    "G# minor/Ab minor",
+	"D# minor/Eb minor",
+	"A# minor/Bb minor",
+	"F minor",
+    "C minor",
+	"G minor",
+	"D minor",
+	"A minor",
+	"E minor",
+	"B minor",
+    "F# minor/Gb minor",
+	"C# minor/Db minor",
+	"B major",
+	"F# major/Gb major",
+    "C# major/Db major",
+	"G# major/Ab major",
+	"D# major/Eb major",
+	"A# major/Bb major",
+    "F major",
+	"C major",
+	"G major",
+	"D major",
+	"A major",
+	"E major"
 };
 
 struct CQTKernel {
@@ -247,6 +313,20 @@ CQTWorkspace& get_workspace() {
     return ws;
 }
 
+const float* resolve_log_bias_calibration(const KeyitConfig& config, std::size_t bins) {
+    if (!config.cqt_log_bias_calibration.empty()) {
+        if (config.cqt_log_bias_calibration.size() == bins) {
+            return config.cqt_log_bias_calibration.data();
+        }
+        return nullptr;
+    }
+    if (config.use_default_cqt_log_bias_calibration &&
+        bins == kDefaultCqtLogBiasCalibration.size()) {
+        return kDefaultCqtLogBiasCalibration.data();
+    }
+    return nullptr;
+}
+
 std::vector<float> compute_log_cqt_matrix(const std::vector<float>& samples,
                                           const KeyitConfig& config,
                                           std::size_t* out_frames) {
@@ -281,6 +361,7 @@ std::vector<float> compute_log_cqt_matrix(const std::vector<float>& samples,
     ws.frame_mag.assign(config.cqt_bins, 0.0f);
     ws.frame_scaled.assign(config.cqt_bins, 0.0f);
     ws.frame_log.assign(config.cqt_bins, 0.0f);
+    const float* log_bias = resolve_log_bias_calibration(config, bins);
 
     for (std::size_t t = 0; t < frames; ++t) {
         const int center = static_cast<int>(t * config.hop_length);
@@ -313,9 +394,17 @@ std::vector<float> compute_log_cqt_matrix(const std::vector<float>& samples,
 
         DSPSplitComplex split{ws.frame_real.data(), ws.frame_imag.data()};
         vDSP_zvabs(&split, 1, ws.frame_mag.data(), 1, static_cast<vDSP_Length>(bins));
-        vDSP_vmul(ws.frame_mag.data(), 1, pack.inv_sqrt.data(), 1, ws.frame_scaled.data(), 1, static_cast<vDSP_Length>(bins));
+        vDSP_vsmul(ws.frame_mag.data(),
+                   1,
+                   &config.cqt_magnitude_gain,
+                   ws.frame_scaled.data(),
+                   1,
+                   static_cast<vDSP_Length>(bins));
         int log_n = static_cast<int>(bins);
         vvlog1pf(ws.frame_log.data(), ws.frame_scaled.data(), &log_n);
+        if (log_bias) {
+            vDSP_vadd(ws.frame_log.data(), 1, log_bias, 1, ws.frame_log.data(), 1, static_cast<vDSP_Length>(bins));
+        }
 
         for (std::size_t b = 0; b < bins; ++b) {
             matrix[b * frames + t] = ws.frame_log[b];
@@ -526,6 +615,13 @@ std::vector<float> compute_log_cqt_features_from_samples(const std::vector<float
     if (samples.empty() || sample_rate <= 0.0) {
         if (error) {
             *error = "No audio samples provided";
+        }
+        return {};
+    }
+    if (!config.cqt_log_bias_calibration.empty() &&
+        config.cqt_log_bias_calibration.size() != config.cqt_bins) {
+        if (error) {
+            *error = "cqt_log_bias_calibration size must equal cqt_bins";
         }
         return {};
     }

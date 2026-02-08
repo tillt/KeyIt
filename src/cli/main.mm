@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iostream>
 #include <chrono>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -19,8 +20,10 @@ struct CliOptions {
     std::string output_name = "logits";
     std::string dump_features_path;
     std::string dump_probs_path;
+    std::string cqt_log_bias_calibration_path;
     double max_seconds = 8.0 * 60.0;
     bool ml_cpu_only = false;
+    bool cqt_calibration_default = true;
     bool bench = false;
     bool show_help = false;
     bool verbose = false;
@@ -36,11 +39,71 @@ void print_usage(const char* exe) {
         << "  --ml-output <name>     CoreML output feature name (default: logits)\n"
         << "  --max-seconds <sec>    Cap analysis duration from start (default: 480)\n"
         << "  --ml-cpu-only          Force CoreML CPU-only execution\n"
+        << "  --cqt-calibration-default  Enable built-in per-bin CQT log-bias calibration\n"
+        << "  --cqt-log-bias-calibration <path>\n"
+        << "                          CSV/whitespace float list with one bias value per CQT bin\n"
         << "  --bench                Print benchmark timings\n"
         << "  --dump-features <path> Write computed CQT features as CSV (rows=freq bins)\n"
         << "  --dump-probs <path>    Write output probabilities (24 lines)\n"
         << "  --verbose              Verbose diagnostics\n"
         << "  -h, --help             Show this help\n";
+}
+
+bool read_float_vector_file(const std::string& path,
+                            std::vector<float>* values,
+                            std::string* error) {
+    if (!values) {
+        if (error) {
+            *error = "Internal error: values pointer is null";
+        }
+        return false;
+    }
+    values->clear();
+
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        if (error) {
+            *error = "Failed to open calibration file: " + path;
+        }
+        return false;
+    }
+
+    std::string line;
+    std::size_t line_no = 0;
+    while (std::getline(in, line)) {
+        ++line_no;
+        const std::size_t hash = line.find('#');
+        if (hash != std::string::npos) {
+            line = line.substr(0, hash);
+        }
+        for (char& ch : line) {
+            if (ch == ',') {
+                ch = ' ';
+            }
+        }
+
+        std::istringstream iss(line);
+        float v = 0.0f;
+        while (iss >> v) {
+            values->push_back(v);
+        }
+
+        // Detect parse errors on non-whitespace garbage.
+        if (!iss.eof()) {
+            if (error) {
+                *error = "Invalid calibration value at line " + std::to_string(line_no);
+            }
+            return false;
+        }
+    }
+
+    if (values->empty()) {
+        if (error) {
+            *error = "Calibration file has no values: " + path;
+        }
+        return false;
+    }
+    return true;
 }
 
 bool parse_args(int argc, char** argv, CliOptions* options) {
@@ -101,6 +164,14 @@ bool parse_args(int argc, char** argv, CliOptions* options) {
         }
         if (arg == "--ml-cpu-only") {
             options->ml_cpu_only = true;
+            continue;
+        }
+        if (arg == "--cqt-calibration-default") {
+            options->cqt_calibration_default = true;
+            continue;
+        }
+        if (arg == "--cqt-log-bias-calibration") {
+            options->cqt_log_bias_calibration_path = next(arg.c_str());
             continue;
         }
         if (arg == "--bench") {
@@ -280,10 +351,20 @@ int main(int argc, char** argv) {
     keyit::KeyitConfig config;
     config.verbose = options.verbose;
     config.coreml_cpu_only = options.ml_cpu_only;
+    config.use_default_cqt_log_bias_calibration = options.cqt_calibration_default;
     config.input_name = options.input_name;
     config.output_name = options.output_name;
     if (!options.model_path.empty()) {
         config.model_path = options.model_path;
+    }
+    if (!options.cqt_log_bias_calibration_path.empty()) {
+        std::string cal_error;
+        if (!read_float_vector_file(options.cqt_log_bias_calibration_path,
+                                    &config.cqt_log_bias_calibration,
+                                    &cal_error)) {
+            std::cerr << cal_error << "\n";
+            return 1;
+        }
     }
     if (options.bench) {
         config.verbose = true;
