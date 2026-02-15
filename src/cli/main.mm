@@ -23,7 +23,6 @@ struct CliOptions {
     std::string cqt_log_bias_calibration_path;
     double max_seconds = 8.0 * 60.0;
     bool ml_cpu_only = false;
-    bool cqt_calibration_default = false;
     bool bench = false;
     bool show_help = false;
     bool verbose = false;
@@ -39,7 +38,6 @@ void print_usage(const char* exe) {
         << "  --ml-output <name>     CoreML output feature name (default: logits)\n"
         << "  --max-seconds <sec>    Cap analysis duration from start (default: 480)\n"
         << "  --ml-cpu-only          Force CoreML CPU-only execution\n"
-        << "  --cqt-calibration-default  Enable built-in per-bin CQT log-bias calibration\n"
         << "  --cqt-log-bias-calibration <path>\n"
         << "                          CSV/whitespace float list with one bias value per CQT bin\n"
         << "  --bench                Print benchmark timings\n"
@@ -164,10 +162,6 @@ bool parse_args(int argc, char** argv, CliOptions* options) {
         }
         if (arg == "--ml-cpu-only") {
             options->ml_cpu_only = true;
-            continue;
-        }
-        if (arg == "--cqt-calibration-default") {
-            options->cqt_calibration_default = true;
             continue;
         }
         if (arg == "--cqt-log-bias-calibration") {
@@ -351,7 +345,6 @@ int main(int argc, char** argv) {
     keyit::KeyitConfig config;
     config.verbose = options.verbose;
     config.coreml_cpu_only = options.ml_cpu_only;
-    config.use_default_cqt_log_bias_calibration = options.cqt_calibration_default;
     config.input_name = options.input_name;
     config.output_name = options.output_name;
     if (!options.model_path.empty()) {
@@ -398,6 +391,13 @@ int main(int argc, char** argv) {
     std::cout << "Camelot: " << estimate.camelot << "\n";
     std::cout << "Key: " << estimate.key_name << "\n";
     std::cout << "Confidence: " << estimate.confidence << "\n";
+    std::cout << "Ambiguous: " << (estimate.ambiguous ? "yes" : "no")
+              << " (margin=" << estimate.ambiguity_margin << ")\n";
+    if (estimate.ambiguous && estimate.alternate_class_id >= 0) {
+        std::cout << "Alternate: " << estimate.alternate_class_id
+                  << "  " << estimate.alternate_camelot
+                  << "  " << estimate.alternate_key_name << "\n";
+    }
     std::cout << "Top-5:\n";
     for (const auto& cls : estimate.topk) {
         std::cout << "  " << cls.class_id

@@ -4,7 +4,6 @@
 #include <Accelerate/Accelerate.h>
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -22,30 +21,6 @@ namespace keyit {
 namespace {
 
 constexpr float kPi = 3.14159265358979323846f;
-
-constexpr std::array<float, 105> kDefaultCqtLogBiasCalibration = {
-    0.816209280f, 0.691344393f, 0.678358230f, 0.753089163f, 0.751547973f,
-    0.711355049f, 0.716198483f, 0.759912857f, 0.812856443f, 0.774768212f,
-    0.711787168f, 0.619642502f, 0.588299708f, 0.652690464f, 0.597054439f,
-    0.584151417f, 0.556521805f, 0.430352961f, 0.482169870f, 0.447112485f,
-    0.452582219f, 0.433626678f, 0.493246177f, 0.448857517f, 0.388343368f,
-    0.420318738f, 0.381577386f, 0.390134552f, 0.402957371f, 0.370300336f,
-    0.360008146f, 0.363319969f, 0.455445864f, 0.436736131f, 0.372235103f,
-    0.337314140f, 0.366456869f, 0.397487394f, 0.422997965f, 0.361849434f,
-    0.344424956f, 0.351010119f, 0.297234622f, 0.228245696f, 0.204559109f,
-    0.263926589f, 0.251728098f, 0.193496538f, 0.239621082f, 0.182138216f,
-    0.201962362f, 0.219739411f, 0.243641240f, 0.231498873f, 0.314374969f,
-    0.315068730f, 0.080637425f, 0.121943142f, 0.052291274f, 0.128138334f,
-    0.234914445f, 0.178965481f, 0.216092705f, 0.138084346f, 0.178549141f,
-    0.185745757f, 0.135154533f, 0.164993032f, 0.092262185f, 0.168976764f,
-    0.169595197f, 0.100837406f, 0.184808034f, 0.157645607f, 0.168720451f,
-    0.101423349f, 0.092653439f, 0.203173753f, 0.112284406f, 0.232589637f,
-    0.208997425f, 0.142273173f, 0.202643907f, 0.139134924f, 0.151037658f,
-    0.081096587f, 0.085256607f, 0.082672996f, 0.064680264f, 0.054788602f,
-    0.080078784f, 0.154635945f, 0.119011239f, 0.190702917f, 0.160737616f,
-    0.087745315f, 0.064917036f, 0.089128870f, 0.059553782f, 0.093965025f,
-    0.119848688f, 0.118956238f, 0.014480743f, 0.144949744f, -0.117349230f,
-};
 
 const char* kCamelot[24] = {
     "1A",
@@ -320,10 +295,6 @@ const float* resolve_log_bias_calibration(const KeyitConfig& config, std::size_t
         }
         return nullptr;
     }
-    if (config.use_default_cqt_log_bias_calibration &&
-        bins == kDefaultCqtLogBiasCalibration.size()) {
-        return kDefaultCqtLogBiasCalibration.data();
-    }
     return nullptr;
 }
 
@@ -446,6 +417,205 @@ std::vector<float> trim_trailing_frames(const std::vector<float>& matrix,
     return out;
 }
 
+std::vector<float> softmax(const std::vector<float>& logits);
+bool aggregate_logits_over_windows(const std::vector<float>& cqt,
+                                   std::size_t bins,
+                                   std::size_t frames,
+                                   const KeyitConfig& config,
+                                   std::vector<float>* aggregated_logits,
+                                   std::size_t* out_windows,
+                                   std::string* error);
+
+float clampf(float v, float lo, float hi) {
+    return std::max(lo, std::min(hi, v));
+}
+
+std::vector<float> apply_harmonic_time_median_enhancement(const std::vector<float>& matrix,
+                                                          std::size_t bins,
+                                                          std::size_t frames,
+                                                          const KeyitConfig& config) {
+    if (!config.harmonic_time_median_enhance ||
+        config.harmonic_time_median_window < 3 ||
+        bins == 0 || frames == 0 ||
+        matrix.size() != bins * frames) {
+        return matrix;
+    }
+
+    const std::size_t window = std::max<std::size_t>(3, config.harmonic_time_median_window | 1ull);
+    const std::size_t half = window / 2;
+    const float blend = clampf(config.harmonic_time_median_blend, 0.0f, 1.0f);
+    if (blend <= 0.0f) {
+        return matrix;
+    }
+
+    std::vector<float> out(matrix.size(), 0.0f);
+    std::vector<float> tmp;
+    tmp.reserve(window);
+
+    for (std::size_t b = 0; b < bins; ++b) {
+        const float* row = matrix.data() + b * frames;
+        float* dst = out.data() + b * frames;
+        for (std::size_t t = 0; t < frames; ++t) {
+            const std::size_t s = (t > half) ? (t - half) : 0;
+            const std::size_t e = std::min(frames, t + half + 1);
+            tmp.assign(row + s, row + e);
+            auto mid = tmp.begin() + static_cast<std::ptrdiff_t>(tmp.size() / 2);
+            std::nth_element(tmp.begin(), mid, tmp.end());
+            const float median = *mid;
+            dst[t] = (1.0f - blend) * row[t] + blend * median;
+        }
+    }
+    return out;
+}
+
+std::vector<float> compute_frame_energy_weights(const std::vector<float>& matrix,
+                                                std::size_t bins,
+                                                std::size_t frames,
+                                                const KeyitConfig& config) {
+    if (bins == 0 || frames == 0 || matrix.size() != bins * frames) {
+        return {};
+    }
+    std::vector<float> weights(frames, 1.0f);
+    const float q = clampf(config.frame_energy_gate_quantile, 0.0f, 0.95f);
+    if (q <= 0.0f) {
+        return weights;
+    }
+
+    std::vector<float> energy(frames, 0.0f);
+    for (std::size_t b = 0; b < bins; ++b) {
+        const float* row = matrix.data() + b * frames;
+        for (std::size_t t = 0; t < frames; ++t) {
+            energy[t] += row[t];
+        }
+    }
+    const float inv_bins = 1.0f / static_cast<float>(bins);
+    for (float& e : energy) {
+        e *= inv_bins;
+    }
+
+    std::vector<float> sorted = energy;
+    std::sort(sorted.begin(), sorted.end());
+    const std::size_t qidx = static_cast<std::size_t>(q * static_cast<float>(sorted.size() - 1));
+    const float threshold = sorted[qidx];
+    const float emin = sorted.front();
+    const float emax = sorted.back();
+    const float spread = std::max(1e-6f, (emax - emin) * clampf(config.frame_energy_gate_softness, 0.02f, 1.0f));
+
+    float mean_w = 0.0f;
+    for (std::size_t t = 0; t < frames; ++t) {
+        const float z = (energy[t] - threshold) / spread;
+        const float w = 1.0f / (1.0f + std::exp(-z));
+        weights[t] = w;
+        mean_w += w;
+    }
+    mean_w /= static_cast<float>(frames);
+    if (mean_w > 1e-6f) {
+        const float inv_mean = 1.0f / mean_w;
+        for (float& w : weights) {
+            w = clampf(w * inv_mean, 0.2f, 2.0f);
+        }
+    }
+    return weights;
+}
+
+std::vector<float> slice_cqt_frames(const std::vector<float>& cqt,
+                                    std::size_t bins,
+                                    std::size_t frames,
+                                    std::size_t start,
+                                    std::size_t count) {
+    if (bins == 0 || frames == 0 || count == 0 || start >= frames || cqt.size() != bins * frames) {
+        return {};
+    }
+    const std::size_t n = std::min(count, frames - start);
+    std::vector<float> out(bins * n, 0.0f);
+    for (std::size_t b = 0; b < bins; ++b) {
+        const float* src = cqt.data() + b * frames + start;
+        float* dst = out.data() + b * n;
+        std::copy(src, src + n, dst);
+    }
+    return out;
+}
+
+bool compute_section_voted_probs(const std::vector<float>& cqt,
+                                 std::size_t bins,
+                                 std::size_t frames,
+                                 const KeyitConfig& config,
+                                 std::vector<float>* out_probs,
+                                 std::string* error) {
+    if (!out_probs) {
+        return false;
+    }
+    out_probs->clear();
+    if (!config.use_section_voting || config.section_vote_count == 0) {
+        return false;
+    }
+
+    const float head_skip = clampf(config.section_vote_head_skip_ratio, 0.0f, 0.45f);
+    const float tail_skip = clampf(config.section_vote_tail_skip_ratio, 0.0f, 0.45f);
+    const std::size_t head_frames = static_cast<std::size_t>(static_cast<float>(frames) * head_skip);
+    const std::size_t tail_frames = static_cast<std::size_t>(static_cast<float>(frames) * tail_skip);
+    if (head_frames + tail_frames >= frames) {
+        return false;
+    }
+    const std::size_t usable_start = head_frames;
+    const std::size_t usable_frames = frames - head_frames - tail_frames;
+    const std::size_t min_frames_for_sections = std::max<std::size_t>(
+        config.inference_window_frames * 2,
+        config.section_vote_count * config.inference_window_frames);
+    if (usable_frames < min_frames_for_sections) {
+        return false;
+    }
+
+    const std::size_t section_count = std::max<std::size_t>(1, config.section_vote_count);
+    const std::size_t section_len = std::max<std::size_t>(config.inference_window_frames, usable_frames / section_count);
+    std::vector<float> sum_probs(24, 0.0f);
+    std::size_t used = 0;
+
+    for (std::size_t i = 0; i < section_count; ++i) {
+        const float center_pos = (static_cast<float>(i) + 0.5f) / static_cast<float>(section_count);
+        const std::size_t center = usable_start + static_cast<std::size_t>(center_pos * static_cast<float>(usable_frames));
+        std::size_t start = (center > section_len / 2) ? (center - section_len / 2) : usable_start;
+        if (start < usable_start) {
+            start = usable_start;
+        }
+        if (start + section_len > usable_start + usable_frames) {
+            start = usable_start + usable_frames - section_len;
+        }
+
+        const std::vector<float> sec = slice_cqt_frames(cqt, bins, frames, start, section_len);
+        if (sec.empty()) {
+            continue;
+        }
+        std::vector<float> sec_logits;
+        std::size_t sec_windows = 0;
+        std::string sec_err;
+        if (!aggregate_logits_over_windows(sec, bins, section_len, config, &sec_logits, &sec_windows, &sec_err)) {
+            continue;
+        }
+        const std::vector<float> sec_probs = softmax(sec_logits);
+        if (sec_probs.size() != 24) {
+            continue;
+        }
+        for (std::size_t c = 0; c < 24; ++c) {
+            sum_probs[c] += sec_probs[c];
+        }
+        ++used;
+    }
+
+    if (used == 0) {
+        if (error) {
+            *error = "Section voting produced no valid sections";
+        }
+        return false;
+    }
+    const float inv = 1.0f / static_cast<float>(used);
+    for (float& p : sum_probs) {
+        p *= inv;
+    }
+    *out_probs = std::move(sum_probs);
+    return true;
+}
+
 std::vector<float> softmax(const std::vector<float>& logits) {
     if (logits.empty()) {
         return {};
@@ -530,7 +700,16 @@ bool aggregate_logits_over_windows(const std::vector<float>& cqt,
         }
     }
 
-    std::vector<float> sum_logits;
+    const std::vector<float> frame_weights = compute_frame_energy_weights(cqt, bins, frames, config);
+    if (frame_weights.empty()) {
+        if (error) {
+            *error = "Failed to compute frame energy weights";
+        }
+        return false;
+    }
+
+    std::vector<float> sum_probs(24, 0.0f);
+    float total_weight = 0.0f;
     std::size_t windows = 0;
     std::vector<float> window_input(1 * 1 * bins * window_frames, 0.0f);
 
@@ -539,10 +718,17 @@ bool aggregate_logits_over_windows(const std::vector<float>& cqt,
 
         const std::size_t available = (start < frames) ? (frames - start) : 0;
         const std::size_t copy_frames = std::min(window_frames, available);
+        float window_quality = 0.0f;
+        for (std::size_t t = 0; t < copy_frames; ++t) {
+            window_quality += frame_weights[start + t];
+        }
+        window_quality /= std::max<std::size_t>(1, copy_frames);
         for (std::size_t b = 0; b < bins; ++b) {
             const float* src = cqt.data() + b * frames + start;
             float* dst = window_input.data() + b * window_frames;
-            std::copy(src, src + copy_frames, dst);
+            for (std::size_t t = 0; t < copy_frames; ++t) {
+                dst[t] = src[t] * frame_weights[start + t];
+            }
         }
 
         std::vector<float> logits;
@@ -560,28 +746,40 @@ bool aggregate_logits_over_windows(const std::vector<float>& cqt,
             return false;
         }
 
-        if (sum_logits.empty()) {
-            sum_logits.assign(logits.begin(), logits.begin() + 24);
-        } else {
-            for (std::size_t i = 0; i < 24; ++i) {
-                sum_logits[i] += logits[i];
+        std::vector<float> probs = softmax(std::vector<float>(logits.begin(), logits.begin() + 24));
+        if (probs.empty()) {
+            if (error) {
+                *error = "Window softmax failed";
             }
+            return false;
         }
+        float max_prob = 0.0f;
+        for (float p : probs) {
+            max_prob = std::max(max_prob, p);
+        }
+        const float conf = clampf((max_prob - (1.0f / 24.0f)) / (1.0f - (1.0f / 24.0f)), 0.0f, 1.0f);
+        const float window_weight = std::max(0.1f, window_quality * (0.5f + conf));
+        for (std::size_t i = 0; i < 24; ++i) {
+            sum_probs[i] += probs[i] * window_weight;
+        }
+        total_weight += window_weight;
         ++windows;
     }
 
-    if (windows == 0 || sum_logits.empty()) {
+    if (windows == 0 || total_weight <= std::numeric_limits<float>::min()) {
         if (error) {
             *error = "No inference windows were produced";
         }
         return false;
     }
 
-    const float inv = 1.0f / static_cast<float>(windows);
-    for (float& v : sum_logits) {
-        v *= inv;
+    const float inv = 1.0f / total_weight;
+    std::vector<float> merged_logits(24, 0.0f);
+    for (std::size_t i = 0; i < 24; ++i) {
+        const float p = std::max(sum_probs[i] * inv, 1e-9f);
+        merged_logits[i] = std::log(p);
     }
-    *aggregated_logits = std::move(sum_logits);
+    *aggregated_logits = std::move(merged_logits);
     if (out_windows) {
         *out_windows = windows;
     }
@@ -673,13 +871,16 @@ KeyEstimate estimate_key_from_samples(const std::vector<float>& samples,
     if (config.verbose) {
         std::cerr << "keyit: computing CQT features...\n";
     }
-    const std::vector<float> cqt =
+    const std::vector<float> cqt_raw =
         compute_log_cqt_features_from_samples(samples, sample_rate, config, &frames, &feat_error);
     const auto t_feat = std::chrono::steady_clock::now();
-    if (cqt.empty() || frames == 0) {
+    if (cqt_raw.empty() || frames == 0) {
         result.error = feat_error.empty() ? "Failed to compute CQT features" : feat_error;
         return result;
     }
+
+    const std::vector<float> cqt = apply_harmonic_time_median_enhancement(
+        cqt_raw, config.cqt_bins, frames, config);
     result.timing.feature_frames = frames;
     result.timing.feature_ms = std::chrono::duration<double, std::milli>(t_feat - t0).count();
     if (config.verbose) {
@@ -714,10 +915,33 @@ KeyEstimate estimate_key_from_samples(const std::vector<float>& samples,
         return result;
     }
 
-    const std::vector<float> probs = softmax(logits);
+    std::vector<float> probs = softmax(logits);
     if (probs.empty()) {
         result.error = "Softmax failed";
         return result;
+    }
+
+    std::string section_error;
+    std::vector<float> section_probs;
+    if (compute_section_voted_probs(cqt, config.cqt_bins, frames, config, &section_probs, &section_error) &&
+        section_probs.size() == probs.size()) {
+        const float section_weight = clampf(config.section_vote_weight, 0.0f, 0.8f);
+        const float global_weight = 1.0f - section_weight;
+        for (std::size_t i = 0; i < probs.size(); ++i) {
+            probs[i] = global_weight * probs[i] + section_weight * section_probs[i];
+        }
+        float sum = 0.0f;
+        for (float p : probs) {
+            sum += p;
+        }
+        if (sum > std::numeric_limits<float>::min()) {
+            const float inv = 1.0f / sum;
+            for (float& p : probs) {
+                p *= inv;
+            }
+        }
+    } else if (config.verbose && !section_error.empty()) {
+        std::cerr << "keyit: section voting skipped: " << section_error << "\n";
     }
 
     auto best_it = std::max_element(probs.begin(), probs.end());
@@ -728,6 +952,24 @@ KeyEstimate estimate_key_from_samples(const std::vector<float>& samples,
     result.confidence = *best_it;
     result.camelot = camelot_label(best_class);
     result.key_name = key_name_label(best_class);
+    std::vector<float> sorted_probs = probs;
+    std::sort(sorted_probs.begin(), sorted_probs.end(), std::greater<float>());
+    if (sorted_probs.size() >= 2) {
+        result.ambiguity_margin = sorted_probs[0] - sorted_probs[1];
+    }
+    const float ambiguity_threshold = clampf(config.ambiguity_margin_threshold, 0.0f, 0.5f);
+    result.ambiguous = result.ambiguity_margin < ambiguity_threshold;
+    if (result.ambiguous) {
+        std::vector<int> idx(probs.size());
+        std::iota(idx.begin(), idx.end(), 0);
+        std::partial_sort(idx.begin(), idx.begin() + 2, idx.end(),
+            [&](int a, int b) { return probs[static_cast<std::size_t>(a)] > probs[static_cast<std::size_t>(b)]; });
+        if (idx.size() > 1) {
+            result.alternate_class_id = idx[1];
+            result.alternate_camelot = camelot_label(idx[1]);
+            result.alternate_key_name = key_name_label(idx[1]);
+        }
+    }
     result.probabilities = probs;
     result.topk = build_topk(probs, 5);
     result.timing.total_ms = std::chrono::duration<double, std::milli>(t_infer - t0).count();
