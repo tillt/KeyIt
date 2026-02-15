@@ -18,6 +18,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(KEYIT_LIB_SOURCES
     src/keyit/analysis.cpp
+    src/keyit/analysis_features_internal.cpp
+    src/keyit/analysis_inference_internal.cpp
     src/keyit/coreml.mm
 )
 set(KEYIT_PUBLIC_HEADERS
@@ -137,6 +139,8 @@ set(KEYIT_TEST_AUDIO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/audio")
 set(KEYIT_TEST_AUDIO_FILES
     "${KEYIT_TEST_AUDIO_DIR}/sine_a4_10s.wav"
     "${KEYIT_TEST_AUDIO_DIR}/c_major_triad_12s.wav"
+    "${KEYIT_TEST_AUDIO_DIR}/b_major_triad_12s.wav"
+    "${KEYIT_TEST_AUDIO_DIR}/e_major_triad_12s.wav"
     "${KEYIT_TEST_AUDIO_DIR}/a_minor_triad_12s.wav"
     "${KEYIT_TEST_AUDIO_DIR}/c_major_to_a_minor_20s.wav"
     "${KEYIT_TEST_AUDIO_DIR}/low_noise_8s.wav"

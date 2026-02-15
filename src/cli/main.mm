@@ -1,3 +1,12 @@
+//
+//  main.mm
+//  KeyIt
+//
+//  musical key estimation CLI.
+//
+//  Created by Till Toenshoff on 10.02.26.
+//  Copyright © 2026 Till Toenshoff. All rights reserved.
+//
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
 
@@ -23,7 +32,6 @@ struct CliOptions {
     std::string cqt_log_bias_calibration_path;
     double max_seconds = 8.0 * 60.0;
     bool ml_cpu_only = false;
-    bool cqt_calibration_default = true;
     bool bench = false;
     bool show_help = false;
     bool verbose = false;
@@ -39,7 +47,6 @@ void print_usage(const char* exe) {
         << "  --ml-output <name>     CoreML output feature name (default: logits)\n"
         << "  --max-seconds <sec>    Cap analysis duration from start (default: 480)\n"
         << "  --ml-cpu-only          Force CoreML CPU-only execution\n"
-        << "  --cqt-calibration-default  Enable built-in per-bin CQT log-bias calibration\n"
         << "  --cqt-log-bias-calibration <path>\n"
         << "                          CSV/whitespace float list with one bias value per CQT bin\n"
         << "  --bench                Print benchmark timings\n"
@@ -50,21 +57,13 @@ void print_usage(const char* exe) {
 }
 
 bool read_float_vector_file(const std::string& path,
-                            std::vector<float>* values,
-                            std::string* error) {
-    if (!values) {
-        if (error) {
-            *error = "Internal error: values pointer is null";
-        }
-        return false;
-    }
-    values->clear();
+                            std::vector<float>& values,
+                            std::string& error) {
+    values.clear();
 
     std::ifstream in(path);
     if (!in.is_open()) {
-        if (error) {
-            *error = "Failed to open calibration file: " + path;
-        }
+        error = "Failed to open calibration file: " + path;
         return false;
     }
 
@@ -85,22 +84,18 @@ bool read_float_vector_file(const std::string& path,
         std::istringstream iss(line);
         float v = 0.0f;
         while (iss >> v) {
-            values->push_back(v);
+            values.push_back(v);
         }
 
         // Detect parse errors on non-whitespace garbage.
         if (!iss.eof()) {
-            if (error) {
-                *error = "Invalid calibration value at line " + std::to_string(line_no);
-            }
+            error = "Invalid calibration value at line " + std::to_string(line_no);
             return false;
         }
     }
 
-    if (values->empty()) {
-        if (error) {
-            *error = "Calibration file has no values: " + path;
-        }
+    if (values.empty()) {
+        error = "Calibration file has no values: " + path;
         return false;
     }
     return true;
@@ -166,10 +161,6 @@ bool parse_args(int argc, char** argv, CliOptions* options) {
             options->ml_cpu_only = true;
             continue;
         }
-        if (arg == "--cqt-calibration-default") {
-            options->cqt_calibration_default = true;
-            continue;
-        }
         if (arg == "--cqt-log-bias-calibration") {
             options->cqt_log_bias_calibration_path = next(arg.c_str());
             continue;
@@ -195,16 +186,9 @@ bool parse_args(int argc, char** argv, CliOptions* options) {
 }
 
 bool load_audio_file_mono_f32(const std::string& path,
-                              std::vector<float>* samples,
-                              double* sample_rate,
-                              std::string* error) {
-    if (!samples || !sample_rate) {
-        if (error) {
-            *error = "Internal error: output pointers are null";
-        }
-        return false;
-    }
-
+                              std::vector<float>& samples,
+                              double& sample_rate,
+                              std::string& error) {
     @autoreleasepool {
         NSString* ns_path = [NSString stringWithUTF8String:path.c_str()];
         NSURL* url = [NSURL fileURLWithPath:ns_path];
@@ -215,18 +199,14 @@ bool load_audio_file_mono_f32(const std::string& path,
                                                     interleaved:NO
                                                           error:&ns_error];
         if (!file || ns_error) {
-            if (error) {
-                *error = [[NSString stringWithFormat:@"Failed to open audio file: %@",
-                           ns_error.localizedDescription] UTF8String];
-            }
+            error = [[NSString stringWithFormat:@"Failed to open audio file: %@",
+                      ns_error.localizedDescription] UTF8String];
             return false;
         }
 
         const AVAudioFrameCount frame_count = static_cast<AVAudioFrameCount>(file.length);
         if (frame_count == 0) {
-            if (error) {
-                *error = "Audio file is empty";
-            }
+            error = "Audio file is empty";
             return false;
         }
 
@@ -234,44 +214,38 @@ bool load_audio_file_mono_f32(const std::string& path,
         AVAudioPCMBuffer* src_buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:format
                                                                         frameCapacity:frame_count];
         if (![file readIntoBuffer:src_buffer error:&ns_error] || ns_error) {
-            if (error) {
-                *error = [[NSString stringWithFormat:@"Failed reading audio: %@",
-                           ns_error.localizedDescription] UTF8String];
-            }
+            error = [[NSString stringWithFormat:@"Failed reading audio: %@",
+                      ns_error.localizedDescription] UTF8String];
             return false;
         }
         if (format.commonFormat != AVAudioPCMFormatFloat32 || src_buffer.floatChannelData == nil) {
-            if (error) {
-                *error = "Audio decode did not produce float32 PCM";
-            }
+            error = "Audio decode did not produce float32 PCM";
             return false;
         }
 
         const AVAudioFrameCount out_frames = src_buffer.frameLength;
         const AVAudioChannelCount channels = format.channelCount;
         if (out_frames == 0 || channels == 0) {
-            if (error) {
-                *error = "Decoded audio has no frames";
-            }
+            error = "Decoded audio has no frames";
             return false;
         }
 
-        samples->assign(out_frames, 0.0f);
+        samples.assign(out_frames, 0.0f);
         for (AVAudioChannelCount ch = 0; ch < channels; ++ch) {
             const float* channel_data = src_buffer.floatChannelData[ch];
             if (!channel_data) {
                 continue;
             }
             for (AVAudioFrameCount i = 0; i < out_frames; ++i) {
-                (*samples)[i] += channel_data[i];
+                samples[i] += channel_data[i];
             }
         }
         const float inv_channels = 1.0f / static_cast<float>(channels);
-        for (float& s : *samples) {
+        for (float& s : samples) {
             s *= inv_channels;
         }
 
-        *sample_rate = format.sampleRate;
+        sample_rate = format.sampleRate;
         return true;
     }
 }
@@ -280,12 +254,10 @@ bool write_matrix_csv(const std::string& path,
                       const std::vector<float>& matrix,
                       std::size_t rows,
                       std::size_t cols,
-                      std::string* error) {
+                      std::string& error) {
     std::ofstream out(path);
     if (!out.is_open()) {
-        if (error) {
-            *error = "Failed to open feature dump path: " + path;
-        }
+        error = "Failed to open feature dump path: " + path;
         return false;
     }
     for (std::size_t r = 0; r < rows; ++r) {
@@ -302,12 +274,10 @@ bool write_matrix_csv(const std::string& path,
 
 bool write_vector_lines(const std::string& path,
                         const std::vector<float>& values,
-                        std::string* error) {
+                        std::string& error) {
     std::ofstream out(path);
     if (!out.is_open()) {
-        if (error) {
-            *error = "Failed to open probability dump path: " + path;
-        }
+        error = "Failed to open probability dump path: " + path;
         return false;
     }
     for (float v : values) {
@@ -334,7 +304,7 @@ int main(int argc, char** argv) {
     double sample_rate = 0.0;
     std::string load_error;
     const auto t_decode_start = std::chrono::steady_clock::now();
-    if (!load_audio_file_mono_f32(options.input_path, &samples, &sample_rate, &load_error)) {
+    if (!load_audio_file_mono_f32(options.input_path, samples, sample_rate, load_error)) {
         std::cerr << load_error << "\n";
         return 1;
     }
@@ -351,7 +321,6 @@ int main(int argc, char** argv) {
     keyit::KeyitConfig config;
     config.verbose = options.verbose;
     config.coreml_cpu_only = options.ml_cpu_only;
-    config.use_default_cqt_log_bias_calibration = options.cqt_calibration_default;
     config.input_name = options.input_name;
     config.output_name = options.output_name;
     if (!options.model_path.empty()) {
@@ -360,8 +329,8 @@ int main(int argc, char** argv) {
     if (!options.cqt_log_bias_calibration_path.empty()) {
         std::string cal_error;
         if (!read_float_vector_file(options.cqt_log_bias_calibration_path,
-                                    &config.cqt_log_bias_calibration,
-                                    &cal_error)) {
+                                    config.cqt_log_bias_calibration,
+                                    cal_error)) {
             std::cerr << cal_error << "\n";
             return 1;
         }
@@ -379,7 +348,7 @@ int main(int argc, char** argv) {
             return 2;
         }
         std::string write_error;
-        if (!write_matrix_csv(options.dump_features_path, features, config.cqt_bins, frames, &write_error)) {
+        if (!write_matrix_csv(options.dump_features_path, features, config.cqt_bins, frames, write_error)) {
             std::cerr << write_error << "\n";
             return 2;
         }
@@ -398,6 +367,13 @@ int main(int argc, char** argv) {
     std::cout << "Camelot: " << estimate.camelot << "\n";
     std::cout << "Key: " << estimate.key_name << "\n";
     std::cout << "Confidence: " << estimate.confidence << "\n";
+    std::cout << "Ambiguous: " << (estimate.ambiguous ? "yes" : "no")
+              << " (margin=" << estimate.ambiguity_margin << ")\n";
+    if (estimate.ambiguous && estimate.alternate_class_id >= 0) {
+        std::cout << "Alternate: " << estimate.alternate_class_id
+                  << "  " << estimate.alternate_camelot
+                  << "  " << estimate.alternate_key_name << "\n";
+    }
     std::cout << "Top-5:\n";
     for (const auto& cls : estimate.topk) {
         std::cout << "  " << cls.class_id
@@ -409,7 +385,7 @@ int main(int argc, char** argv) {
 
     if (!options.dump_probs_path.empty()) {
         std::string write_error;
-        if (!write_vector_lines(options.dump_probs_path, estimate.probabilities, &write_error)) {
+        if (!write_vector_lines(options.dump_probs_path, estimate.probabilities, write_error)) {
             std::cerr << write_error << "\n";
             return 2;
         }
