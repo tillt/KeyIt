@@ -184,6 +184,8 @@ bool test_fixtures_and_features(const fs::path& audio_dir) {
     const std::vector<std::string> names = {
         "sine_a4_10s.wav",
         "c_major_triad_12s.wav",
+        "b_major_triad_12s.wav",
+        "e_major_triad_12s.wav",
         "a_minor_triad_12s.wav",
         "c_major_to_a_minor_20s.wav",
         "low_noise_8s.wav",
@@ -313,6 +315,44 @@ bool test_mode_balance_regression_if_available(const fs::path& audio_dir, const 
     return ok;
 }
 
+bool test_b_side_major_predictions_if_available(const fs::path& audio_dir, const fs::path& model_path) {
+    if (!fs::exists(model_path)) {
+        std::cerr << "WARN: model not found, skipping B-side major prediction checks: " << model_path << "\n";
+        return true;
+    }
+
+    const std::vector<std::string> names = {
+        "b_major_triad_12s.wav",
+        "e_major_triad_12s.wav",
+    };
+
+    bool ok = true;
+    for (const auto& name : names) {
+        const fs::path wav = audio_dir / name;
+        WavData data;
+        std::string err;
+        ok &= expect_true(load_wav_pcm16_mono(wav, &data, &err),
+                          "load B-side fixture: " + name + (err.empty() ? "" : (" (" + err + ")")));
+        if (data.samples.empty() || data.sample_rate <= 0) {
+            ok &= expect_true(false, "B-side fixture has valid samples: " + name);
+            continue;
+        }
+
+        keyit::KeyitConfig cfg;
+        cfg.model_path = model_path.string();
+        cfg.coreml_cpu_only = true;
+        keyit::KeyEstimate est = keyit::estimate_key_from_samples(
+            data.samples,
+            static_cast<double>(data.sample_rate),
+            cfg);
+
+        ok &= expect_true(est.ok, "B-side inference ok: " + name);
+        ok &= expect_true(est.class_id >= 12 && est.class_id < 24, "B-side top-1 class id (12..23): " + name);
+        ok &= expect_true(!est.camelot.empty() && est.camelot.back() == 'B', "B-side camelot suffix B: " + name);
+    }
+    return ok;
+}
+
 bool test_cli_cap_behavior_if_available(const fs::path& audio_dir,
                                         const fs::path& model_path,
                                         const fs::path& cli_path) {
@@ -370,6 +410,7 @@ int main() {
     ok &= test_fixtures_and_features(audio_dir);
     ok &= test_model_inference_if_available(audio_dir, model_path);
     ok &= test_mode_balance_regression_if_available(audio_dir, model_path);
+    ok &= test_b_side_major_predictions_if_available(audio_dir, model_path);
     ok &= test_cli_cap_behavior_if_available(audio_dir, model_path, cli_path);
 
     if (!ok) {

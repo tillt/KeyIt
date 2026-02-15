@@ -92,6 +92,16 @@ def generate_fixtures(out_dir: Path, sample_rate: int) -> Iterable[Path]:
     _write_wav_mono_16(p, _normalize(c_major), sample_rate)
     created.append(p)
 
+    b_major = _linear_fade(_chord([246.941651, 311.126984, 369.994423], sample_rate, 12.0, amp=0.25), sample_rate)
+    p = out_dir / "b_major_triad_12s.wav"
+    _write_wav_mono_16(p, _normalize(b_major), sample_rate)
+    created.append(p)
+
+    e_major = _linear_fade(_chord([164.813778, 207.652349, 246.941651], sample_rate, 12.0, amp=0.25), sample_rate)
+    p = out_dir / "e_major_triad_12s.wav"
+    _write_wav_mono_16(p, _normalize(e_major), sample_rate)
+    created.append(p)
+
     a_minor = _linear_fade(_chord([220.0, 261.625565, 329.627557], sample_rate, 12.0, amp=0.25), sample_rate)
     p = out_dir / "a_minor_triad_12s.wav"
     _write_wav_mono_16(p, _normalize(a_minor), sample_rate)

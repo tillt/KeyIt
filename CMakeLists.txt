@@ -139,6 +139,8 @@ set(KEYIT_TEST_AUDIO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/audio")
 set(KEYIT_TEST_AUDIO_FILES
     "${KEYIT_TEST_AUDIO_DIR}/sine_a4_10s.wav"
     "${KEYIT_TEST_AUDIO_DIR}/c_major_triad_12s.wav"
+    "${KEYIT_TEST_AUDIO_DIR}/b_major_triad_12s.wav"
+    "${KEYIT_TEST_AUDIO_DIR}/e_major_triad_12s.wav"
     "${KEYIT_TEST_AUDIO_DIR}/a_minor_triad_12s.wav"
     "${KEYIT_TEST_AUDIO_DIR}/c_major_to_a_minor_20s.wav"
     "${KEYIT_TEST_AUDIO_DIR}/low_noise_8s.wav"
