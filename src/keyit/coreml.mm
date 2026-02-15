@@ -1,3 +1,10 @@
+//
+//  coreml.mm
+//  KeyIt
+//
+//  Created by Till Toenshoff on 10.02.26.
+//  Copyright © 2026 Till Toenshoff. All rights reserved.
+//
 #import <CoreML/CoreML.h>
 #import <Foundation/Foundation.h>
 

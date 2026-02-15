@@ -1,3 +1,12 @@
+//
+//  main.mm
+//  KeyIt
+//
+//  musical key estimation CLI.
+//
+//  Created by Till Toenshoff on 10.02.26.
+//  Copyright © 2026 Till Toenshoff. All rights reserved.
+//
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
 

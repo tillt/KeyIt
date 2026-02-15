@@ -1,3 +1,10 @@
+//
+//  analysis_features_internal.cpp
+//  KeyIt
+//
+//  Created by Till Toenshoff on 10.02.26.
+//  Copyright © 2026 Till Toenshoff. All rights reserved.
+//
 #include "analysis_features_internal.h"
 
 #include <Accelerate/Accelerate.h>

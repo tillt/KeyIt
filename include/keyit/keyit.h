@@ -1,3 +1,13 @@
+//
+//  keyit.h
+//  KeyIt
+//
+//  Public C++ API for musical key estimation.
+//
+//  Created by Till Toenshoff on 10.02.26.
+//  Copyright © 2026 Till Toenshoff. All rights reserved.
+//
+
 #pragma once
 
 #include <cstddef>
@@ -6,6 +16,15 @@
 
 namespace keyit {
 
+/// @defgroup api keyit Public API
+/// Public, supported C++ interfaces for key estimation and feature extraction.
+/// @{
+
+/**
+ * @brief Configuration for feature extraction and key estimation.
+ *
+ * Default values are tuned for the bundled KeyNet CoreML model.
+ */
 struct KeyitConfig {
     std::string model_path = "models/keynet.mlmodelc";
     std::string input_name = "spec";
@@ -35,6 +54,8 @@ struct KeyitConfig {
     bool verbose = false;
 };
 
+/// @ingroup api
+/// Probability score for a single key class.
 struct ClassScore {
     int class_id = -1;
     float probability = 0.0f;
@@ -42,6 +63,8 @@ struct ClassScore {
     std::string key_name;
 };
 
+/// @ingroup api
+/// Timing breakdown for the analysis pipeline.
 struct PipelineTiming {
     double feature_ms = 0.0;
     double inference_ms = 0.0;
@@ -50,6 +73,12 @@ struct PipelineTiming {
     std::size_t inference_windows = 0;
 };
 
+/**
+ * @brief Result of key estimation.
+ *
+ * When `ok == true`, `class_id`, `camelot`, `key_name`, `confidence`, and `probabilities`
+ * contain the inferred result. When `ok == false`, `error` contains a short message.
+ */
 struct KeyEstimate {
     bool ok = false;
     std::string error;
@@ -67,17 +96,44 @@ struct KeyEstimate {
     PipelineTiming timing;
 };
 
+/**
+ * @brief Estimate musical key from mono PCM samples.
+ *
+ * @param samples Input mono audio samples (`[-1, 1]` float32-style values recommended).
+ * @param sample_rate Sample rate of `samples` in Hz.
+ * @param config Runtime configuration (defaults are suitable for bundled model).
+ * @return Key estimation result including top prediction, probabilities, and timing.
+ */
 KeyEstimate estimate_key_from_samples(const std::vector<float>& samples,
                                       double sample_rate,
-                                      const KeyitConfig& config = {});
+                                      const KeyitConfig& config = {});  ///< @ingroup api
 
+/**
+ * @brief Compute log-CQT-like features from mono PCM samples.
+ *
+ * This exposes the frontend used by `estimate_key_from_samples(...)`.
+ *
+ * @param samples Input mono audio samples.
+ * @param sample_rate Sample rate of `samples` in Hz.
+ * @param config Frontend configuration.
+ * @param out_frames Optional output frame count.
+ * @param error Optional error message on failure.
+ * @return Feature matrix in row-major `(bins x frames)` flattened storage.
+ */
 std::vector<float> compute_log_cqt_features_from_samples(const std::vector<float>& samples,
                                                          double sample_rate,
                                                          const KeyitConfig& config,
                                                          std::size_t* out_frames,
-                                                         std::string* error);
+                                                         std::string* error);  ///< @ingroup api
 
+/// @brief Convert a class id (`0..23`) to Camelot notation (`1A..12A`, `1B..12B`).
+/// @ingroup api
 std::string camelot_label(int class_id);
+
+/// @brief Convert a class id (`0..23`) to a human-readable key name.
+/// @ingroup api
 std::string key_name_label(int class_id);
 
-} // namespace keyit
+/// @}
+
+}  // namespace keyit

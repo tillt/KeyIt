@@ -1,3 +1,11 @@
+//
+//  analysis_inference_internal.h
+//  KeyIt
+//
+//  Created by Till Toenshoff on 10.02.26.
+//  Copyright © 2026 Till Toenshoff. All rights reserved.
+//
+
 #pragma once
 
 #include "keyit/keyit.h"
