@@ -19,6 +19,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(KEYIT_LIB_SOURCES
     src/keyit/analysis.cpp
     src/keyit/analysis_features_internal.cpp
+    src/keyit/analysis_inference_internal.cpp
     src/keyit/coreml.mm
 )
 set(KEYIT_PUBLIC_HEADERS
