@@ -15,8 +15,8 @@ struct KeyitConfig {
     std::size_t cqt_bins = 105;
     std::size_t hop_length = 8820;
     float cqt_fmin_hz = 65.0f;
-    float cqt_magnitude_gain = 24.0f;
-    bool use_default_cqt_log_bias_calibration = true;
+    float cqt_magnitude_gain = 1.0f;
+    bool use_default_cqt_log_bias_calibration = false;
     std::vector<float> cqt_log_bias_calibration;
     std::size_t trim_trailing_frames = 2;
     std::size_t inference_window_frames = 100;

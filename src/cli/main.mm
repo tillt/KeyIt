@@ -23,7 +23,7 @@ struct CliOptions {
     std::string cqt_log_bias_calibration_path;
     double max_seconds = 8.0 * 60.0;
     bool ml_cpu_only = false;
-    bool cqt_calibration_default = true;
+    bool cqt_calibration_default = false;
     bool bench = false;
     bool show_help = false;
     bool verbose = false;

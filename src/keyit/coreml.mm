@@ -200,8 +200,8 @@ bool run_keynet_coreml(const std::vector<float>& input_nchw,
         if (config.coreml_cpu_only) {
             [unit_candidates addObject:@(MLComputeUnitsCPUOnly)];
         } else {
-            // Prefer accelerated paths first and fall back to CPU.
-            [unit_candidates addObject:@(MLComputeUnitsAll)];
+            // Prefer explicit accelerated paths first and fall back to CPU.
+            // MLComputeUnitsAll may trigger unstable behavior on some hosts.
             [unit_candidates addObject:@(MLComputeUnitsCPUAndGPU)];
             [unit_candidates addObject:@(MLComputeUnitsCPUAndNeuralEngine)];
             [unit_candidates addObject:@(MLComputeUnitsCPUOnly)];

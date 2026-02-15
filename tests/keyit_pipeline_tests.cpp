@@ -259,6 +259,60 @@ bool test_model_inference_if_available(const fs::path& audio_dir, const fs::path
     return ok;
 }
 
+bool test_mode_balance_regression_if_available(const fs::path& audio_dir, const fs::path& model_path) {
+    if (!fs::exists(model_path)) {
+        std::cerr << "WARN: model not found, skipping mode-balance regression checks: " << model_path << "\n";
+        return true;
+    }
+
+    const std::vector<std::string> names = {
+        "c_major_triad_12s.wav",
+        "a_minor_triad_12s.wav",
+    };
+
+    bool ok = true;
+    for (const auto& name : names) {
+        const fs::path wav = audio_dir / name;
+        WavData data;
+        std::string err;
+        ok &= expect_true(load_wav_pcm16_mono(wav, &data, &err),
+                          "load mode-balance fixture: " + name + (err.empty() ? "" : (" (" + err + ")")));
+        if (data.samples.empty() || data.sample_rate <= 0) {
+            ok &= expect_true(false, "mode-balance fixture has valid samples: " + name);
+            continue;
+        }
+
+        keyit::KeyitConfig cfg;
+        cfg.model_path = model_path.string();
+        cfg.coreml_cpu_only = true;
+        keyit::KeyEstimate est = keyit::estimate_key_from_samples(
+            data.samples,
+            static_cast<double>(data.sample_rate),
+            cfg);
+
+        ok &= expect_true(est.ok, "mode-balance inference ok: " + name);
+        ok &= expect_true(est.probabilities.size() == 24, "mode-balance has 24 probabilities: " + name);
+        if (!est.ok || est.probabilities.size() != 24) {
+            continue;
+        }
+
+        float a_mass = 0.0f;
+        float b_mass = 0.0f;
+        for (int i = 0; i < 12; ++i) {
+            a_mass += est.probabilities[static_cast<std::size_t>(i)];
+            b_mass += est.probabilities[static_cast<std::size_t>(i + 12)];
+        }
+
+        // Regression guard: if one mode's probability mass collapses close to zero,
+        // we effectively lose major/minor discrimination regardless of top-1.
+        ok &= expect_true(a_mass > 0.20f, "A-side probability mass remains present: " + name);
+        ok &= expect_true(b_mass > 0.20f, "B-side probability mass remains present: " + name);
+
+    }
+
+    return ok;
+}
+
 bool test_cli_cap_behavior_if_available(const fs::path& audio_dir,
                                         const fs::path& model_path,
                                         const fs::path& cli_path) {
@@ -315,6 +369,7 @@ int main() {
     bool ok = true;
     ok &= test_fixtures_and_features(audio_dir);
     ok &= test_model_inference_if_available(audio_dir, model_path);
+    ok &= test_mode_balance_regression_if_available(audio_dir, model_path);
     ok &= test_cli_cap_behavior_if_available(audio_dir, model_path, cli_path);
 
     if (!ok) {
