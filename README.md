@@ -1,6 +1,8 @@
-# keyit
+# KeyIT
 
-`keyit` is a macOS musical key detector using CoreML + Accelerate, based on a CoreML port of `MusicalKeyCNN`.
+<p align="center"><img height="340px" src="site/images/KeyIT_Logo_1254x1254.png" /></p>
+
+KeyIT is a macOS musical key detector using CoreML + Accelerate, based on a CoreML port of `MusicalKeyCNN`.
 
 ## Build
 
@@ -97,7 +99,7 @@ See `include/keyit/keyit.h` for config and result structures (`KeyitConfig`, `Ke
 
 ## Parity check
 
-Compare `keyit` against Python reference:
+Compare KeyIT against Python reference:
 
 ```bash
 NUMBA_CACHE_DIR=/tmp ../beatit/.venv/bin/python scripts/parity_check.py \
@@ -137,7 +139,7 @@ Default test set includes CPU pipeline tests and GPU-path checks (`keyit_gpu_tes
 
 ## Credits
 
-`keyit` builds on ideas and model work from `MusicalKeyCNN`.
+KeyIT builds on ideas and model work from `MusicalKeyCNN`.
 
 Please cite and refer to the original publication for scientific use and further reading:
 
