@@ -9,7 +9,7 @@ KeyIT is a macOS musical key detector using CoreML + Accelerate, based on a Core
 Example:
 
 ```bash
-./build/keyit-cli --input /path/to/song.mp3 --model models/keynet.mlmodelc
+./build/keyit-cli --input /path/to/song.mp3
 ```
 
 Options:
