@@ -32,7 +32,7 @@ CLI output includes:
 - alternate class/camelot/key when ambiguous
 - top-5 class probabilities
 
-## Analysis pipeline (current)
+## Analysis pipeline
 
 Core path:
 1. decode to mono float32 (`AVFoundation`)
